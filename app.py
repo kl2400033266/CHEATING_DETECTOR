@@ -108,9 +108,14 @@ def detect_frame(frame):
     pose_results = pose_detection_model(frame, verbose=False, conf=0.25, imgsz=640)
     head_rotated = False
     if pose_results[0].keypoints is not None:
-        for keypoints in pose_results[0].keypoints.xy:
+        keypoint_confidences = pose_results[0].keypoints.conf
+        for index, keypoints in enumerate(pose_results[0].keypoints.xy):
             if len(keypoints) < 7:
                 continue
+            if keypoint_confidences is not None:
+                confidence = keypoint_confidences[index]
+                if min(float(confidence[0]), float(confidence[5]), float(confidence[6])) < 0.4:
+                    continue
             nose = keypoints[0]
             left_shoulder = keypoints[5]
             right_shoulder = keypoints[6]

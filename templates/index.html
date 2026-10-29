@@ -193,14 +193,17 @@ async function sendCameraFrame() {
         ? `Detected: ${labels}`
         : "Monitoring: no review objects detected.";
       if (result.multiple_people && !previousMultiplePeople) {
-        registerWarning("More than one person detected");
+        registerWarning("More than one person detected", "proximity");
       }
       if (result.head_rotated) {
         if (headRotationStartedAt === null) headRotationStartedAt = Date.now();
         const turnedSeconds = (Date.now() - headRotationStartedAt) / 1000;
         if (turnedSeconds > 10 && !headTurnWarningRegistered) {
           headTurnWarningRegistered = true;
-          registerWarning("Head turned continuously for more than 10 seconds");
+          registerWarning(
+            "Head turned continuously for more than 10 seconds",
+            "attention"
+          );
         } else {
           cameraStatus.textContent = `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
         }
@@ -209,7 +212,13 @@ async function sendCameraFrame() {
         headTurnWarningRegistered = false;
       }
       if (result.review && !previousObjectReview) {
-        registerWarning("Phone or book detected");
+        const reviewObject = result.detections.find(
+          (item) => item.name === "cell phone" || item.name === "book"
+        );
+        registerWarning(
+          reviewObject ? `${reviewObject.name} detected` : "Phone or book detected",
+          "proximity"
+        );
       }
       updateAlertDashboard(result);
     } catch (error) {
@@ -223,17 +232,6 @@ async function sendCameraFrame() {
 }
 
 function updateAlertDashboard(result) {
-  const objectReview = result.review && !previousObjectReview;
-  const multiplePeople = result.multiple_people && !previousMultiplePeople;
-  const headTurn = result.head_rotated && !previousHeadRotated;
-  if (objectReview || multiplePeople) {
-    proximityAlerts += 1;
-    addAlert(multiplePeople ? "More than one person detected" : "Phone or book detected", "proximity");
-  }
-  if (headTurn) {
-    attentionAlerts += 1;
-    addAlert("Head turned detected", "attention");
-  }
   document.getElementById("proximityCount").textContent = proximityAlerts;
   document.getElementById("attentionCount").textContent = attentionAlerts;
   previousObjectReview = result.review;
@@ -255,12 +253,19 @@ function addAlert(message, type) {
     `${alertEvents} ${alertEvents === 1 ? "event" : "events"}`;
 }
 
-function registerWarning(reason) {
+function registerWarning(reason, alertType) {
   if (examTerminated) return;
   if (!reason || warningCount >= maxWarnings) return;
   warningCount += 1;
   document.querySelectorAll(".heart")[warningCount - 1].classList.add("used");
-  addAlert(`Warning ${warningCount}/3: ${reason}`, "proximity");
+  if (alertType === "attention") {
+    attentionAlerts += 1;
+  } else {
+    proximityAlerts += 1;
+  }
+  document.getElementById("proximityCount").textContent = proximityAlerts;
+  document.getElementById("attentionCount").textContent = attentionAlerts;
+  addAlert(`Warning ${warningCount}/3: ${reason}`, alertType);
   const remaining = maxWarnings - warningCount;
   document.getElementById("examStatus").textContent =
     remaining === 0
