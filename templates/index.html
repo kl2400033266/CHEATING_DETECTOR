@@ -185,6 +185,7 @@ async function sendCameraFrame() {
       const result = await response.json();
       const oldUrl = liveResult.src;
       liveResult.src = `data:image/jpeg;base64,${result.image}`;
+      liveResult.classList.add("detected-frame");
       if (oldUrl.startsWith("blob:")) URL.revokeObjectURL(oldUrl);
       cameraStatus.textContent = "Live detection is running.";
       updateAlertDashboard(result);
@@ -204,7 +205,9 @@ async function sendCameraFrame() {
         headRotationStartedAt = null;
       }
     } catch (error) {
-      cameraStatus.textContent = error.message;
+      liveResult.classList.remove("detected-frame");
+      cameraStatus.textContent =
+        `${error.message}. Camera preview is still running.`;
     } finally {
       sendingFrame = false;
     }
@@ -271,6 +274,8 @@ function stopExam(message = "Exam stopped after 3 review warnings.") {
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
   camera.srcObject = null;
+  document.querySelector(".camera-stage").classList.remove("live");
+  liveResult.classList.remove("detected-frame");
   document.querySelector(".camera-empty").style.display = "grid";
   livePill.innerHTML = '<span class="pulse"></span> STOPPED';
   startCamera.disabled = true;
@@ -287,6 +292,8 @@ function terminateExam(message) {
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
   camera.srcObject = null;
+  document.querySelector(".camera-stage").classList.remove("live");
+  liveResult.classList.remove("detected-frame");
   document.querySelector(".camera-empty").style.display = "grid";
   livePill.innerHTML = '<span class="pulse"></span> TERMINATED';
   startCamera.disabled = true;
@@ -308,6 +315,7 @@ startCamera.addEventListener("click", async () => {
       audio: false
     });
     camera.srcObject = cameraStream;
+    document.querySelector(".camera-stage").classList.add("live");
     document.querySelector(".camera-empty").style.display = "none";
     livePill.innerHTML = '<span class="pulse"></span> LIVE';
     startCamera.disabled = true;
