@@ -243,6 +243,11 @@ function updateAlertDashboard(result) {
 
 function addAlert(message, type) {
   alertEvents += 1;
+  if (type === "attention") {
+    attentionAlerts += 1;
+  } else if (type === "proximity") {
+    proximityAlerts += 1;
+  }
   const log = document.getElementById("alertLog");
   const empty = log.querySelector(".empty-log");
   if (empty) empty.remove();
@@ -253,6 +258,8 @@ function addAlert(message, type) {
   log.prepend(item);
   document.getElementById("alertLogCount").textContent =
     `${alertEvents} ${alertEvents === 1 ? "event" : "events"}`;
+  document.getElementById("proximityCount").textContent = proximityAlerts;
+  document.getElementById("attentionCount").textContent = attentionAlerts;
 }
 
 function registerWarning(reason, alertType) {
@@ -260,13 +267,6 @@ function registerWarning(reason, alertType) {
   if (!reason || warningCount >= maxWarnings) return;
   warningCount += 1;
   document.querySelectorAll(".heart")[warningCount - 1].classList.add("used");
-  if (alertType === "attention") {
-    attentionAlerts += 1;
-  } else {
-    proximityAlerts += 1;
-  }
-  document.getElementById("proximityCount").textContent = proximityAlerts;
-  document.getElementById("attentionCount").textContent = attentionAlerts;
   addAlert(`Warning ${warningCount}/3: ${reason}`, alertType);
   const remaining = maxWarnings - warningCount;
   document.getElementById("examStatus").textContent =
