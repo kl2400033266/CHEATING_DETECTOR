@@ -102,6 +102,8 @@
 
   </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 <script>
 const form = document.getElementById("uploadForm");
 const status = document.getElementById("status");
@@ -119,7 +121,8 @@ const apiBaseUrl = {{ api_base_url|tojson }};
 const apiUrl = (path) => `${apiBaseUrl}${path}`;
 let cameraStream;
 let cameraTimer;
-let sendingFrame = false;
+let detectionModel;
+let loadingDetectionModel;
 let warningCount = 0;
 let headRotationStartedAt = null;
 let previousHeadRotated = false;
@@ -130,6 +133,38 @@ let proximityAlerts = 0;
 let alertEvents = 0;
 let examTerminated = false;
 const maxWarnings = 3;
+const reviewObjects = new Set(["cell phone", "book"]);
+
+async function getDetectionModel() {
+  if (detectionModel) return detectionModel;
+  if (!loadingDetectionModel) {
+    loadingDetectionModel = cocoSsd.load({ base: "lite_mobilenet_v2" });
+  }
+  detectionModel = await loadingDetectionModel;
+  return detectionModel;
+}
+
+function drawDetections(predictions) {
+  cameraCanvas.width = camera.videoWidth;
+  cameraCanvas.height = camera.videoHeight;
+  const context = cameraCanvas.getContext("2d");
+  context.drawImage(camera, 0, 0, cameraCanvas.width, cameraCanvas.height);
+  context.lineWidth = Math.max(2, cameraCanvas.width / 320);
+  context.font = `${Math.max(14, cameraCanvas.width / 45)}px sans-serif`;
+  predictions.forEach((prediction) => {
+    const [x, y, width, height] = prediction.bbox;
+    const review = reviewObjects.has(prediction.class);
+    context.strokeStyle = review ? "#ff5470" : "#31d6a5";
+    context.fillStyle = context.strokeStyle;
+    context.strokeRect(x, y, width, height);
+    const label = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+    context.fillRect(x, Math.max(0, y - 25), context.measureText(label).width + 10, 25);
+    context.fillStyle = "#07111f";
+    context.fillText(label, x + 5, Math.max(18, y - 7));
+  });
+  liveResult.src = cameraCanvas.toDataURL("image/jpeg", 0.8);
+  liveResult.classList.add("detected-frame");
+}
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -166,85 +201,40 @@ dataForm.addEventListener("submit", async (e) => {
 });
 
 async function sendCameraFrame() {
-  if (examTerminated || !cameraStream || camera.videoWidth === 0 || sendingFrame) return;
-  sendingFrame = true;
-  cameraCanvas.width = camera.videoWidth;
-  cameraCanvas.height = camera.videoHeight;
-  cameraCanvas.getContext("2d").drawImage(camera, 0, 0);
-
-  cameraCanvas.toBlob(async (blob) => {
-    if (!blob) {
-      sendingFrame = false;
-      cameraStatus.textContent = "Could not capture a camera frame.";
-      return;
+  if (examTerminated || !cameraStream || camera.videoWidth === 0 || !detectionModel) return;
+  try {
+    const predictions = await detectionModel.detect(camera);
+    const detections = predictions
+      .filter((prediction) => prediction.score >= 0.45)
+      .map((prediction) => ({
+        name: prediction.class,
+        confidence: prediction.score
+      }));
+    drawDetections(predictions.filter((prediction) => prediction.score >= 0.45));
+    const people = detections.filter((item) => item.name === "person").length;
+    const reviewObject = detections.find((item) => reviewObjects.has(item.name));
+    const result = {
+      detections,
+      review: Boolean(reviewObject),
+      multiple_people: people > 1,
+      head_rotated: false
+    };
+    const labels = detections
+      .map((item) => `${item.name} ${Math.round(item.confidence * 100)}%`)
+      .join(", ");
+    cameraStatus.textContent = labels
+      ? `Frontend detected: ${labels}`
+      : "Frontend monitoring: no review objects detected.";
+    if (result.multiple_people && !previousMultiplePeople) {
+      registerWarning("More than one person detected", "proximity");
     }
-    try {
-      const formData = new FormData();
-      formData.append("frame", blob, "camera.jpg");
-      const response = await fetch(apiUrl("/detect-frame"), {
-        method: "POST",
-        body: formData
-      });
-      if (!response.ok) {
-        let errorMessage = `Live detection failed (${response.status})`;
-        try {
-          const errorResult = await response.json();
-          if (errorResult.error) errorMessage = errorResult.error;
-        } catch (error) {
-          // Keep the HTTP status when the backend does not return JSON.
-        }
-        throw new Error(errorMessage);
-      }
-      const result = await response.json();
-      const oldUrl = liveResult.src;
-      liveResult.src = `data:image/jpeg;base64,${result.image}`;
-      liveResult.classList.add("detected-frame");
-      if (oldUrl.startsWith("blob:")) URL.revokeObjectURL(oldUrl);
-      const labels = result.detections
-        .map((item) => `${item.name} ${Math.round(item.confidence * 100)}%`)
-        .join(", ");
-      cameraStatus.textContent = labels
-        ? `Detected: ${labels}`
-        : "Monitoring: no review objects detected.";
-      if (result.multiple_people && !previousMultiplePeople) {
-        registerWarning("More than one person detected", "proximity");
-      }
-      if (result.head_rotated) {
-        if (headRotationStartedAt === null) headRotationStartedAt = Date.now();
-        const turnedSeconds = (Date.now() - headRotationStartedAt) / 1000;
-        if (turnedSeconds > 10 && !headTurnWarningRegistered) {
-          headTurnWarningRegistered = true;
-          registerWarning(
-            "Head turned continuously for more than 10 seconds",
-            "attention"
-          );
-          cameraStatus.textContent =
-            "Attention alert: head turned for more than 10 seconds.";
-        } else {
-          cameraStatus.textContent = `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
-        }
-      } else {
-        headRotationStartedAt = null;
-        headTurnWarningRegistered = false;
-      }
-      if (result.review && !previousObjectReview) {
-        const reviewObject = result.detections.find(
-          (item) => item.name === "cell phone" || item.name === "book"
-        );
-        registerWarning(
-          reviewObject ? `${reviewObject.name} detected` : "Phone or book detected",
-          "proximity"
-        );
-      }
-      updateAlertDashboard(result);
-    } catch (error) {
-      liveResult.classList.remove("detected-frame");
-      cameraStatus.textContent =
-        `${error.message || "Live detection request failed"}. Camera preview is still running.`;
-    } finally {
-      sendingFrame = false;
+    if (result.review && !previousObjectReview) {
+      registerWarning(`${reviewObject.name} detected`, "proximity");
     }
-  }, "image/jpeg", 0.8);
+    updateAlertDashboard(result);
+  } catch (error) {
+    cameraStatus.textContent = `Frontend detection error: ${error.message}`;
+  }
 }
 
 function updateAlertDashboard(result) {
@@ -341,6 +331,8 @@ startCamera.addEventListener("click", async () => {
     });
     camera.srcObject = cameraStream;
     await camera.play();
+    cameraStatus.textContent = "Loading frontend detection model...";
+    await getDetectionModel();
     await new Promise((resolve) => {
       if (camera.readyState >= HTMLMediaElement.HAVE_METADATA) {
         resolve();
