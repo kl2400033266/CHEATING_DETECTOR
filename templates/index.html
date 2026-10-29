@@ -137,12 +137,12 @@ form.addEventListener("submit", async (e) => {
   const data = new FormData(form);
 
   try {
-    const response = await fetch("/upload", { method: "POST", body: data });
+    const response = await fetch(apiUrl("/upload"), { method: "POST", body: data });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Upload failed");
 
     status.textContent = "Analyzing video...";
-    stream.src = "/video/" + encodeURIComponent(result.video);
+    stream.src = apiUrl("/video/" + encodeURIComponent(result.video));
     stream.style.display = "block";
   } catch (err) {
     status.textContent = err.message;
@@ -153,7 +153,7 @@ dataForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   dataResult.textContent = "Analyzing telemetry...";
   try {
-    const response = await fetch("/analyze-data", {
+    const response = await fetch(apiUrl("/analyze-data"), {
       method: "POST",
       body: new FormData(dataForm)
     });
