@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+uploads/*
+!uploads/.gitkeep
+yolov8n.pt
+yolo11n-pose.pt
+yolov8n.pt.README.txt

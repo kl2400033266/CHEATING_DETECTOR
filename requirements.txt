@@ -1,0 +1,5 @@
+Flask>=3.0
+ultralytics>=8.0
+opencv-python>=4.8
+pandas>=2.0
+scikit-learn>=1.3

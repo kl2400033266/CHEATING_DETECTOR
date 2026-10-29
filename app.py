@@ -1,0 +1,249 @@
+from flask import Flask, render_template, request, Response, jsonify
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import pandas as pd
+import base64
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, precision_score
+from pathlib import Path
+
+app = Flask(__name__)
+UPLOAD_FOLDER = Path("uploads")
+UPLOAD_FOLDER.mkdir(exist_ok=True)
+app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
+
+# YOLOv8 nano model. If yolov8n.pt is not present, Ultralytics can download it
+# the first time you run the project with internet access.
+model = YOLO("yolov8n.pt")
+pose_model = YOLO("yolo11n-pose.pt")
+
+# Simple demo rule: flag objects that may deserve review during an exam.
+# This does NOT automatically determine that a student cheated.
+REVIEW_OBJECTS = {"cell phone", "book"}
+TELEMETRY_FEATURES = [
+    "eye_gaze_angle",
+    "audio_db",
+    "tab_switches",
+    "gaze_rolling_10s",
+    "audio_rolling_10s",
+]
+
+def process_video(video_path):
+    cap = cv2.VideoCapture(str(video_path))
+    while cap.isOpened():
+        ok, frame = cap.read()
+        if not ok:
+            break
+
+        results = model(frame, verbose=False)
+        annotated = results[0].plot()
+
+        detected = []
+        for box in results[0].boxes:
+            cls_id = int(box.cls[0])
+            name = model.names[cls_id]
+            detected.append(name)
+
+        review = any(name in REVIEW_OBJECTS for name in detected)
+        label = "REVIEW EVENT" if review else "Monitoring"
+        cv2.putText(
+            annotated, label, (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX, 1,
+            (0, 0, 255) if review else (0, 180, 0), 2
+        )
+
+        ok, buffer = cv2.imencode(".jpg", annotated)
+        if not ok:
+            continue
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+    cap.release()
+
+
+def detect_frame(frame):
+    results = model(frame, verbose=False)
+    annotated = results[0].plot()
+    detected = [model.names[int(box.cls[0])] for box in results[0].boxes]
+    person_count = sum(name == "person" for name in detected)
+    pose_results = pose_model(frame, verbose=False)
+    head_rotated = False
+    if pose_results[0].keypoints is not None:
+        for keypoints in pose_results[0].keypoints.xy:
+            if len(keypoints) < 7:
+                continue
+            nose = keypoints[0]
+            left_shoulder = keypoints[5]
+            right_shoulder = keypoints[6]
+            shoulder_width = float(abs(right_shoulder[0] - left_shoulder[0]))
+            if shoulder_width <= 0:
+                continue
+            shoulder_center_x = float((left_shoulder[0] + right_shoulder[0]) / 2)
+            horizontal_offset = abs(float(nose[0]) - shoulder_center_x)
+            head_rotated = horizontal_offset / shoulder_width > 0.35
+            if head_rotated:
+                break
+    review = any(name in REVIEW_OBJECTS for name in detected)
+    cv2.putText(
+        annotated,
+        "MULTIPLE PEOPLE" if person_count > 1 else (
+            "HEAD TURN DETECTED" if head_rotated else (
+                "REVIEW EVENT" if review else "Monitoring"
+            )
+        ),
+        (20, 40),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (0, 0, 255) if (review or person_count > 1 or head_rotated) else (0, 180, 0),
+        2,
+    )
+    return annotated, detected, person_count, head_rotated
+
+
+@app.route("/detect-frame", methods=["POST"])
+def detect_frame_route():
+    image = request.files.get("frame")
+    if image is None:
+        return jsonify({"error": "No camera frame received"}), 400
+
+    encoded = np.frombuffer(image.read(), dtype=np.uint8)
+    frame = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"error": "Invalid camera frame"}), 400
+
+    annotated, detected, person_count, head_rotated = detect_frame(frame)
+    ok, buffer = cv2.imencode(".jpg", annotated)
+    if not ok:
+        return jsonify({"error": "Could not encode detected frame"}), 500
+    review = any(name in REVIEW_OBJECTS for name in detected)
+    return jsonify({
+        "image": base64.b64encode(buffer.tobytes()).decode("ascii"),
+        "review": review,
+        "detected": detected,
+        "person_count": person_count,
+        "multiple_people": person_count > 1,
+        "head_rotated": head_rotated,
+    })
+
+
+def prepare_telemetry(video_df, system_df):
+    """Align telemetry streams and create the notebook's rolling features."""
+    required_video = {"timestamp", "eye_gaze_angle", "audio_db"}
+    required_system = {"timestamp", "tab_switches", "is_cheating"}
+    missing_video = required_video - set(video_df.columns)
+    missing_system = required_system - set(system_df.columns)
+    if missing_video or missing_system:
+        missing = sorted(missing_video | missing_system)
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+    video_df = video_df.copy()
+    system_df = system_df.copy()
+    video_df["timestamp"] = pd.to_datetime(video_df["timestamp"], errors="coerce")
+    system_df["timestamp"] = pd.to_datetime(system_df["timestamp"], errors="coerce")
+    video_df = video_df.dropna(subset=["timestamp"]).sort_values("timestamp")
+    system_df = system_df.dropna(subset=["timestamp"]).sort_values("timestamp")
+    if video_df.empty or system_df.empty:
+        raise ValueError("Both CSV files must contain valid timestamp values.")
+
+    merged = pd.merge_asof(
+        video_df,
+        system_df[["timestamp", "tab_switches", "is_cheating"]],
+        on="timestamp",
+        direction="backward",
+    )
+    merged["eye_gaze_angle"] = merged["eye_gaze_angle"].ffill()
+    merged["audio_db"] = merged["audio_db"].interpolate().bfill().ffill()
+    merged[["tab_switches", "is_cheating"]] = (
+        merged[["tab_switches", "is_cheating"]].fillna(0)
+    )
+    merged["gaze_rolling_10s"] = (
+        merged["eye_gaze_angle"].rolling(window=10, min_periods=10).mean()
+    )
+    merged["audio_rolling_10s"] = (
+        merged["audio_db"].rolling(window=10, min_periods=10).max()
+    )
+    return merged.dropna(subset=TELEMETRY_FEATURES + ["is_cheating"])
+
+
+def analyze_telemetry(video_df, system_df):
+    merged = prepare_telemetry(video_df, system_df)
+    if merged["is_cheating"].nunique() < 2:
+        raise ValueError("is_cheating must contain both 0 and 1 classes.")
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        merged[TELEMETRY_FEATURES],
+        merged["is_cheating"].astype(int),
+        test_size=0.2,
+        random_state=42,
+        stratify=merged["is_cheating"].astype(int),
+    )
+    classifier = RandomForestClassifier(
+        n_estimators=200, class_weight="balanced", random_state=42
+    )
+    classifier.fit(x_train, y_train)
+    probabilities = classifier.predict_proba(x_test)[:, 1]
+    default_predictions = (probabilities >= 0.50).astype(int)
+    strict_predictions = (probabilities >= 0.90).astype(int)
+
+    return {
+        "rows_used": int(len(merged)),
+        "default_confusion_matrix": confusion_matrix(
+            y_test, default_predictions, labels=[0, 1]
+        ).tolist(),
+        "strict_confusion_matrix": confusion_matrix(
+            y_test, strict_predictions, labels=[0, 1]
+        ).tolist(),
+        "default_precision": round(float(precision_score(
+            y_test, default_predictions, zero_division=0
+        )), 4),
+        "strict_precision": round(float(precision_score(
+            y_test, strict_predictions, zero_division=0
+        )), 4),
+        "threshold": 0.90,
+    }
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "video" not in request.files:
+        return jsonify({"error": "No video selected"}), 400
+
+    file = request.files["video"]
+    if not file.filename:
+        return jsonify({"error": "No video selected"}), 400
+
+    safe_name = Path(file.filename).name
+    path = UPLOAD_FOLDER / safe_name
+    file.save(path)
+    return jsonify({"video": safe_name})
+
+
+@app.route("/analyze-data", methods=["POST"])
+def analyze_data():
+    if "video_telemetry" not in request.files or "system_events" not in request.files:
+        return jsonify({
+            "error": "Upload both video_telemetry.csv and system_events.csv."
+        }), 400
+    try:
+        video_df = pd.read_csv(request.files["video_telemetry"])
+        system_df = pd.read_csv(request.files["system_events"])
+        return jsonify(analyze_telemetry(video_df, system_df))
+    except (ValueError, pd.errors.ParserError) as error:
+        return jsonify({"error": str(error)}), 400
+
+@app.route("/video/<filename>")
+def video(filename):
+    path = UPLOAD_FOLDER / Path(filename).name
+    if not path.exists():
+        return "Video not found", 404
+    return Response(
+        process_video(path),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
+    )
+
+if __name__ == "__main__":
+    app.run(debug=True, host="127.0.0.1", port=5000)

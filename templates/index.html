@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Exam Monitoring</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">◈</div>
+        <div>
+          <span class="eyebrow">EDUGUARD AI</span>
+          <h1>Exam command center</h1>
+        </div>
+      </div>
+      <div class="system-state"><span class="pulse"></span> SYSTEM ONLINE</div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <span class="eyebrow accent">LIVE PROCTORING SUITE</span>
+        <h2>Monitor with clarity.<br><span>Protect every attempt.</span></h2>
+        <p>Real-time object detection and evidence-led telemetry for safer, fairer exams.</p>
+      </div>
+      <div class="hero-badge"><strong>90%</strong><span>precision threshold</span></div>
+    </section>
+
+    <section class="metrics">
+      <div class="metric"><span class="metric-icon">◉</span><div><small>ENGINE</small><strong>YOLOv8 Nano</strong></div></div>
+      <div class="metric"><span class="metric-icon green">✓</span><div><small>MODE</small><strong>Human review</strong></div></div>
+      <div class="metric"><span class="metric-icon violet">⌁</span><div><small>LATENCY</small><strong>Live stream</strong></div></div>
+    </section>
+
+    <section class="panel live-panel">
+      <div class="panel-heading">
+        <div><span class="section-number">01</span><div><h3>Live camera detection</h3><p>AI-assisted monitoring with human review safeguards</p></div></div>
+        <span id="livePill" class="live-pill"><span class="pulse"></span> READY</span>
+      </div>
+      <div class="camera-stage">
+        <div class="camera-empty"><span class="camera-glyph">◉</span><strong>Camera feed offline</strong><small>Start your session to begin live analysis</small></div>
+        <video id="camera" autoplay muted playsinline></video>
+        <img id="liveResult" alt="Live detection result">
+      </div>
+      <div class="live-footer">
+        <div class="camera-controls">
+          <button type="button" id="startCamera" class="primary-button"><span>▶</span> Start live detection</button>
+          <button type="button" id="stopCamera" class="secondary-button" disabled>Stop camera</button>
+        </div>
+        <div id="warnings" class="warnings" aria-label="Three warnings available">
+          <span class="heart">♥</span><span class="heart">♥</span><span class="heart">♥</span>
+        </div>
+      </div>
+      <p id="examStatus" class="exam-status"><span class="status-dot"></span> Exam is active · 3 warnings remaining</p>
+      <div id="terminationNotice" class="termination-notice" hidden>
+        FINAL WARNING — all 3 chances are used. The exam is being terminated.
+      </div>
+      <p id="cameraStatus" class="camera-status">Waiting for camera permission</p>
+    </section>
+
+    <section class="alert-dashboard">
+      <div class="alert-card"><small>PROXIMITY ALERTS</small><strong id="proximityCount">0</strong></div>
+      <div class="alert-card"><small>ATTENTION ALERTS</small><strong id="attentionCount">0</strong></div>
+      <div class="alert-legend">
+        <span><i class="legend-dot normal"></i>Normal</span>
+        <span><i class="legend-dot attention"></i>Head turned</span>
+        <span><i class="legend-dot proximity"></i>Phone / proximity</span>
+      </div>
+      <div class="alert-log-panel">
+        <div class="alert-log-title"><strong>Alert log</strong><span id="alertLogCount">0 events</span></div>
+        <div id="alertLog" class="alert-log">
+          <div class="empty-log">No alerts detected. Monitoring is active.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lower-grid">
+      <div class="panel upload-panel">
+        <div class="panel-heading"><div><span class="section-number">02</span><div><h3>Video analysis</h3><p>Review a recorded session</p></div></div></div>
+        <form id="uploadForm">
+          <label class="dropzone" for="video"><span class="upload-icon">↑</span><strong>Drop a video here</strong><small>MP4, MOV or AVI · Secure local processing</small><input type="file" id="video" name="video" accept="video/*" required></label>
+          <button type="submit" class="primary-button full-button">Upload & analyze <span>→</span></button>
+        </form>
+        <p id="status" class="camera-status"></p>
+        <img id="stream" alt="Processed video will appear here">
+      </div>
+      <div class="panel upload-panel">
+        <div class="panel-heading"><div><span class="section-number">03</span><div><h3>Telemetry analysis</h3><p>Align signals and validate events</p></div></div></div>
+        <form id="dataForm" class="telemetry-form">
+          <label class="file-row">Video telemetry CSV <input type="file" name="video_telemetry" accept=".csv" required><span>Choose file</span></label>
+          <label class="file-row">System events CSV <input type="file" name="system_events" accept=".csv" required><span>Choose file</span></label>
+          <button type="submit" class="secondary-button full-button">Analyze telemetry <span>→</span></button>
+        </form>
+        <pre id="dataResult"></pre>
+      </div>
+    </section>
+    <footer>
+      <span>EduGuard AI</span> · Detection is advisory and always requires human review.
+      <strong>Developed by RONGALI MOHAN KRISHNA</strong>
+    </footer>
+
+  </main>
+
+<script>
+const form = document.getElementById("uploadForm");
+const status = document.getElementById("status");
+const stream = document.getElementById("stream");
+const dataForm = document.getElementById("dataForm");
+const dataResult = document.getElementById("dataResult");
+const startCamera = document.getElementById("startCamera");
+const stopCamera = document.getElementById("stopCamera");
+const camera = document.getElementById("camera");
+const liveResult = document.getElementById("liveResult");
+const cameraCanvas = document.createElement("canvas");
+const cameraStatus = document.getElementById("cameraStatus");
+const livePill = document.getElementById("livePill");
+let cameraStream;
+let cameraTimer;
+let sendingFrame = false;
+let warningCount = 0;
+let previousReview = false;
+let lastWarningAt = 0;
+let headRotationStartedAt = null;
+let previousHeadRotated = false;
+let previousMultiplePeople = false;
+let previousObjectReview = false;
+let proximityAlerts = 0;
+let attentionAlerts = 0;
+let alertEvents = 0;
+let examTerminated = false;
+const maxWarnings = 3;
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  status.textContent = "Uploading...";
+  const data = new FormData(form);
+
+  try {
+    const response = await fetch("/upload", { method: "POST", body: data });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Upload failed");
+
+    status.textContent = "Analyzing video...";
+    stream.src = "/video/" + encodeURIComponent(result.video);
+    stream.style.display = "block";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+dataForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  dataResult.textContent = "Analyzing telemetry...";
+  try {
+    const response = await fetch("/analyze-data", {
+      method: "POST",
+      body: new FormData(dataForm)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Analysis failed");
+    dataResult.textContent = JSON.stringify(result, null, 2);
+  } catch (err) {
+    dataResult.textContent = err.message;
+  }
+});
+
+async function sendCameraFrame() {
+  if (examTerminated || !cameraStream || camera.videoWidth === 0 || sendingFrame) return;
+  sendingFrame = true;
+  cameraCanvas.width = camera.videoWidth;
+  cameraCanvas.height = camera.videoHeight;
+  cameraCanvas.getContext("2d").drawImage(camera, 0, 0);
+
+  cameraCanvas.toBlob(async (blob) => {
+    try {
+      const formData = new FormData();
+      formData.append("frame", blob, "camera.jpg");
+      const response = await fetch("/detect-frame", {
+        method: "POST",
+        body: formData
+      });
+      if (!response.ok) throw new Error("Live detection failed");
+      const result = await response.json();
+      const oldUrl = liveResult.src;
+      liveResult.src = `data:image/jpeg;base64,${result.image}`;
+      if (oldUrl.startsWith("blob:")) URL.revokeObjectURL(oldUrl);
+      cameraStatus.textContent = "Live detection is running.";
+      updateAlertDashboard(result);
+      registerWarning(result.review);
+      if (result.multiple_people) {
+        stopExam("Exam stopped: more than one person detected.");
+      } else if (result.head_rotated) {
+        if (headRotationStartedAt === null) headRotationStartedAt = Date.now();
+        const turnedSeconds = (Date.now() - headRotationStartedAt) / 1000;
+        if (turnedSeconds > 10) {
+          addAlert("Exam terminated: head turned continuously for more than 10 seconds", "attention");
+          stopExam("EXAM TERMINATED · Head turned continuously for more than 10 seconds.");
+        } else {
+          cameraStatus.textContent = `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
+        }
+      } else {
+        headRotationStartedAt = null;
+      }
+    } catch (error) {
+      cameraStatus.textContent = error.message;
+    } finally {
+      sendingFrame = false;
+    }
+  }, "image/jpeg", 0.8);
+}
+
+function updateAlertDashboard(result) {
+  const objectReview = result.review && !previousObjectReview;
+  const multiplePeople = result.multiple_people && !previousMultiplePeople;
+  const headTurn = result.head_rotated && !previousHeadRotated;
+  if (objectReview || multiplePeople) {
+    proximityAlerts += 1;
+    addAlert(multiplePeople ? "More than one person detected" : "Phone or book detected", "proximity");
+  }
+  if (headTurn) {
+    attentionAlerts += 1;
+    addAlert("Head turned detected", "attention");
+  }
+  document.getElementById("proximityCount").textContent = proximityAlerts;
+  document.getElementById("attentionCount").textContent = attentionAlerts;
+  previousObjectReview = result.review;
+  previousMultiplePeople = result.multiple_people;
+  previousHeadRotated = result.head_rotated;
+}
+
+function addAlert(message, type) {
+  alertEvents += 1;
+  const log = document.getElementById("alertLog");
+  const empty = log.querySelector(".empty-log");
+  if (empty) empty.remove();
+  const time = new Date().toLocaleTimeString([], { hour12: false });
+  const item = document.createElement("div");
+  item.className = `alert-item ${type}`;
+  item.innerHTML = `<span>${time}</span><strong>${message}</strong>`;
+  log.prepend(item);
+  document.getElementById("alertLogCount").textContent =
+    `${alertEvents} ${alertEvents === 1 ? "event" : "events"}`;
+}
+
+function registerWarning(reviewDetected) {
+  if (examTerminated) return;
+  const now = Date.now();
+  const newEvent = reviewDetected && !previousReview;
+  const cooldownPassed = now - lastWarningAt >= 5000;
+  if (newEvent && cooldownPassed && warningCount < maxWarnings) {
+    warningCount += 1;
+    lastWarningAt = now;
+    document.querySelectorAll(".heart")[warningCount - 1].classList.add("used");
+    const remaining = maxWarnings - warningCount;
+    document.getElementById("examStatus").textContent =
+      remaining === 0
+        ? "EXAM TERMINATED · 3 warnings reached"
+        : `Warning ${warningCount}/3. Warnings remaining: ${remaining}`;
+    if (warningCount === maxWarnings) {
+      terminateExam("EXAM TERMINATED · Camera stopped after 3 warnings.");
+    }
+  }
+  previousReview = reviewDetected;
+}
+
+function stopExam(message = "Exam stopped after 3 review warnings.") {
+  if (examTerminated) return;
+  clearInterval(cameraTimer);
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  camera.srcObject = null;
+  document.querySelector(".camera-empty").style.display = "grid";
+  livePill.innerHTML = '<span class="pulse"></span> STOPPED';
+  startCamera.disabled = true;
+  stopCamera.disabled = true;
+  document.querySelectorAll(".heart").forEach((heart) => heart.classList.add("used"));
+  cameraStatus.textContent = message;
+  document.getElementById("examStatus").textContent = message;
+  document.getElementById("examStatus").classList.add("terminated");
+}
+
+function terminateExam(message) {
+  examTerminated = true;
+  clearInterval(cameraTimer);
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  camera.srcObject = null;
+  document.querySelector(".camera-empty").style.display = "grid";
+  livePill.innerHTML = '<span class="pulse"></span> TERMINATED';
+  startCamera.disabled = true;
+  stopCamera.disabled = true;
+  document.querySelectorAll(".heart").forEach((heart) => heart.classList.add("used"));
+  const notice = document.getElementById("terminationNotice");
+  notice.hidden = false;
+  document.getElementById("examStatus").textContent = message;
+  document.getElementById("examStatus").classList.add("terminated");
+  cameraStatus.textContent = "No further detections are accepted after exam termination.";
+  addAlert("Exam terminated after 3 warnings", "proximity");
+}
+
+startCamera.addEventListener("click", async () => {
+  if (examTerminated || warningCount >= maxWarnings) return;
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
+    camera.srcObject = cameraStream;
+    document.querySelector(".camera-empty").style.display = "none";
+    livePill.innerHTML = '<span class="pulse"></span> LIVE';
+    startCamera.disabled = true;
+    stopCamera.disabled = false;
+    cameraStatus.textContent = "Starting live detection...";
+    cameraTimer = setInterval(sendCameraFrame, 500);
+  } catch (error) {
+    cameraStatus.textContent = "Camera access was denied or unavailable.";
+  }
+});
+
+stopCamera.addEventListener("click", () => {
+  if (examTerminated) return;
+  clearInterval(cameraTimer);
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  camera.srcObject = null;
+  document.querySelector(".camera-empty").style.display = "grid";
+  livePill.innerHTML = '<span class="pulse"></span> READY';
+  startCamera.disabled = false;
+  stopCamera.disabled = true;
+  cameraStatus.textContent = "Camera stopped.";
+  document.getElementById("examStatus").classList.remove("terminated");
+  previousReview = false;
+  previousObjectReview = false;
+  previousMultiplePeople = false;
+  previousHeadRotated = false;
+  headRotationStartedAt = null;
+});
+</script>
+</body>
+</html>
