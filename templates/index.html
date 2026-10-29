@@ -115,6 +115,8 @@ const liveResult = document.getElementById("liveResult");
 const cameraCanvas = document.createElement("canvas");
 const cameraStatus = document.getElementById("cameraStatus");
 const livePill = document.getElementById("livePill");
+const apiBaseUrl = {{ api_base_url|tojson }};
+const apiUrl = (path) => `${apiBaseUrl}${path}`;
 let cameraStream;
 let cameraTimer;
 let sendingFrame = false;
@@ -174,7 +176,7 @@ async function sendCameraFrame() {
     try {
       const formData = new FormData();
       formData.append("frame", blob, "camera.jpg");
-      const response = await fetch("/detect-frame", {
+      const response = await fetch(apiUrl("/detect-frame"), {
         method: "POST",
         body: formData
       });

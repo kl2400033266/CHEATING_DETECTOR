@@ -44,6 +44,25 @@ within the serverless function size limit. Full camera detection and telemetry
 analysis require the local dependencies in `requirements-local.txt`, because
 the YOLO/PyTorch stack is too large for a Vercel Function.
 
+## Public deployment with live AI detection
+
+Vercel cannot host the YOLO/PyTorch backend because its Python Function bundle
+limit is 500 MB. Use the included `render.yaml` to deploy the full backend to
+Render:
+
+1. Create a Render Web Service from this repository.
+2. Select the `render.yaml` Blueprint configuration.
+3. Wait for the service to finish installing `requirements-local.txt`.
+4. Copy the backend URL, for example
+   `https://eduguard-ai-backend.onrender.com`.
+5. In the Vercel project settings, add the environment variable
+   `AI_BACKEND_URL` with that backend URL.
+6. Redeploy Vercel and refresh the browser.
+
+The dashboard then sends live camera frames to the Render backend. The backend
+downloads `yolov8n.pt` and `yolo11n-pose.pt` automatically when first used.
+The same backend can also process telemetry and uploaded videos.
+
 ## Telemetry analysis
 
 The web app also supports the notebook's telemetry pipeline. Upload two CSV files

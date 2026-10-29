@@ -1,11 +1,19 @@
 from flask import Flask, render_template, request, Response, jsonify
 import base64
+import os
 from pathlib import Path
 
 app = Flask(__name__)
 UPLOAD_FOLDER = Path("uploads")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
+AI_BACKEND_URL = os.environ.get("AI_BACKEND_URL", "").rstrip("/")
+
+
+@app.after_request
+def allow_frontend_requests(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
 
 try:
     import cv2
@@ -262,7 +270,7 @@ def analyze_telemetry(video_df, system_df):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", api_base_url=AI_BACKEND_URL)
 
 @app.route("/upload", methods=["POST"])
 def upload():

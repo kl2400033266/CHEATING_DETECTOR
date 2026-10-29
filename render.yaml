@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: eduguard-ai-backend
+    runtime: python
+    buildCommand: pip install -r requirements-local.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 120 app:app
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6

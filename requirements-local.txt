@@ -1,4 +1,5 @@
 Flask>=3.0,<4
+gunicorn>=21
 ultralytics>=8.0
 opencv-python>=4.8
 pandas>=2.0
