@@ -204,6 +204,8 @@ async function sendCameraFrame() {
             "Head turned continuously for more than 10 seconds",
             "attention"
           );
+          cameraStatus.textContent =
+            "Attention alert: head turned for more than 10 seconds.";
         } else {
           cameraStatus.textContent = `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
         }

@@ -105,7 +105,7 @@ def detect_frame(frame):
     ]
     detected = [item["name"] for item in detections]
     person_count = sum(name == "person" for name in detected)
-    pose_results = pose_detection_model(frame, verbose=False, conf=0.25, imgsz=640)
+    pose_results = pose_detection_model(frame, verbose=False, conf=0.15, imgsz=640)
     head_rotated = False
     if pose_results[0].keypoints is not None:
         keypoint_confidences = pose_results[0].keypoints.conf
@@ -114,7 +114,7 @@ def detect_frame(frame):
                 continue
             if keypoint_confidences is not None:
                 confidence = keypoint_confidences[index]
-                if min(float(confidence[0]), float(confidence[5]), float(confidence[6])) < 0.4:
+                if min(float(confidence[0]), float(confidence[5]), float(confidence[6])) < 0.25:
                     continue
             nose = keypoints[0]
             left_shoulder = keypoints[5]
@@ -124,7 +124,7 @@ def detect_frame(frame):
                 continue
             shoulder_center_x = float((left_shoulder[0] + right_shoulder[0]) / 2)
             horizontal_offset = abs(float(nose[0]) - shoulder_center_x)
-            head_rotated = horizontal_offset / shoulder_width > 0.35
+            head_rotated = horizontal_offset / shoulder_width > 0.25
             if head_rotated:
                 break
     review = any(name in REVIEW_OBJECTS for name in detected)
