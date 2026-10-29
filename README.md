@@ -5,13 +5,22 @@ Beginner-friendly Flask + YOLOv8 exam-monitoring demo.
 ## Folder structure
 
 CHEATING_DETECTOR/
-- static/style.css
-- templates/index.html
+- static/
+  - style.css
+- templates/
+  - index.html
 - uploads/
 - app.py
 - README.md
 - requirements.txt
-- yolov8n.pt (downloaded automatically by Ultralytics if missing)
+- requirements-local.txt
+- vercel.json
+- yolov8n.pt
+- yolo11n-pose.pt
+
+The `.venv/` and `__pycache__/` folders are local runtime folders and should
+not be uploaded to GitHub. Model files are also ignored by Git because
+Ultralytics can download them when the application starts.
 
 ## Setup in VS Code / Windows
 
@@ -47,6 +56,28 @@ The app aligns asynchronous events with `merge_asof`, fills missing signals,
 creates 10-second rolling features, trains a class-balanced Random Forest, and
 reports confusion matrices and precision at both 0.50 and the strict 0.90
 cheating-probability threshold.
+
+The notebook analysis is implemented in these steps:
+
+1. Parse and sort both timestamp columns.
+2. Align asynchronous system events to video records with `merge_asof` using
+   the nearest previous event.
+3. Forward-fill eye-gaze values, interpolate audio values, and fill missing
+   event labels with zero.
+4. Create 10-record rolling gaze and audio features.
+5. Train a class-balanced Random Forest with an 80/20 stratified split.
+6. Compare the default 0.50 decision threshold with the strict 0.90 threshold.
+
+The current validation dataset produced:
+
+```text
+Rows used: 9,991
+Default precision (0.50): 88.74%
+Strict precision (0.90): 100.00%
+```
+
+The analysis result is returned by `POST /analyze-data` as JSON and is shown
+directly in the telemetry panel.
 
 ## Note
 
