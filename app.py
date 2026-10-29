@@ -7,7 +7,10 @@ app = Flask(__name__)
 UPLOAD_FOLDER = Path("uploads")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
-AI_BACKEND_URL = os.environ.get("AI_BACKEND_URL", "").rstrip("/")
+configured_backend_url = os.environ.get("AI_BACKEND_URL", "").strip()
+AI_BACKEND_URL = configured_backend_url.rstrip("/")
+if not AI_BACKEND_URL and os.environ.get("VERCEL"):
+    AI_BACKEND_URL = "https://cheating-detector-5jt3.onrender.com"
 
 
 @app.after_request
