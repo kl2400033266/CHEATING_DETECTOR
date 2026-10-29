@@ -1,12 +1,5 @@
 from flask import Flask, render_template, request, Response, jsonify
-from ultralytics import YOLO
-import cv2
-import numpy as np
-import pandas as pd
 import base64
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, precision_score
 from pathlib import Path
 
 app = Flask(__name__)
@@ -14,10 +7,29 @@ UPLOAD_FOLDER = Path("uploads")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 
-# YOLOv8 nano model. If yolov8n.pt is not present, Ultralytics can download it
-# the first time you run the project with internet access.
-model = YOLO("yolov8n.pt")
-pose_model = YOLO("yolo11n-pose.pt")
+try:
+    import cv2
+    import numpy as np
+    from ultralytics import YOLO
+except ImportError:
+    cv2 = None
+    np = None
+    YOLO = None
+
+try:
+    import pandas as pd
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import confusion_matrix, precision_score
+except ImportError:
+    pd = None
+    RandomForestClassifier = None
+    train_test_split = None
+    confusion_matrix = None
+    precision_score = None
+
+model = None
+pose_model = None
 
 # Simple demo rule: flag objects that may deserve review during an exam.
 # This does NOT automatically determine that a student cheated.
@@ -30,20 +42,38 @@ TELEMETRY_FEATURES = [
     "audio_rolling_10s",
 ]
 
+
+def get_detection_models():
+    global model, pose_model
+    if YOLO is None:
+        raise RuntimeError(
+            "Live detection is unavailable in this deployment. "
+            "Run locally with the full requirements.txt file."
+        )
+    if model is None:
+        model = YOLO("yolov8n.pt")
+    if pose_model is None:
+        pose_model = YOLO("yolo11n-pose.pt")
+    return model, pose_model
+
+
 def process_video(video_path):
+    if cv2 is None:
+        raise RuntimeError("Video detection dependencies are not installed.")
+    detection_model, _ = get_detection_models()
     cap = cv2.VideoCapture(str(video_path))
     while cap.isOpened():
         ok, frame = cap.read()
         if not ok:
             break
 
-        results = model(frame, verbose=False)
+        results = detection_model(frame, verbose=False)
         annotated = results[0].plot()
 
         detected = []
         for box in results[0].boxes:
             cls_id = int(box.cls[0])
-            name = model.names[cls_id]
+            name = detection_model.names[cls_id]
             detected.append(name)
 
         review = any(name in REVIEW_OBJECTS for name in detected)
@@ -63,11 +93,12 @@ def process_video(video_path):
 
 
 def detect_frame(frame):
-    results = model(frame, verbose=False)
+    detection_model, pose_detection_model = get_detection_models()
+    results = detection_model(frame, verbose=False)
     annotated = results[0].plot()
-    detected = [model.names[int(box.cls[0])] for box in results[0].boxes]
+    detected = [detection_model.names[int(box.cls[0])] for box in results[0].boxes]
     person_count = sum(name == "person" for name in detected)
-    pose_results = pose_model(frame, verbose=False)
+    pose_results = pose_detection_model(frame, verbose=False)
     head_rotated = False
     if pose_results[0].keypoints is not None:
         for keypoints in pose_results[0].keypoints.xy:
@@ -103,6 +134,11 @@ def detect_frame(frame):
 
 @app.route("/detect-frame", methods=["POST"])
 def detect_frame_route():
+    if cv2 is None or np is None:
+        return jsonify({
+            "error": "Live detection is unavailable on Vercel because AI model "
+            "dependencies exceed the serverless size limit. Run the app locally."
+        }), 503
     image = request.files.get("frame")
     if image is None:
         return jsonify({"error": "No camera frame received"}), 400
@@ -167,6 +203,14 @@ def prepare_telemetry(video_df, system_df):
 
 
 def analyze_telemetry(video_df, system_df):
+    if any(item is None for item in (
+        pd, RandomForestClassifier, train_test_split,
+        confusion_matrix, precision_score
+    )):
+        raise RuntimeError(
+            "Telemetry analysis is unavailable in this lightweight deployment. "
+            "Run locally with the full requirements.txt file."
+        )
     merged = prepare_telemetry(video_df, system_df)
     if merged["is_cheating"].nunique() < 2:
         raise ValueError("is_cheating must contain both 0 and 1 classes.")

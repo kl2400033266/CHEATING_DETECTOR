@@ -20,13 +20,20 @@ Open the project folder in VS Code, then run:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-local.txt
 python app.py
 ```
 
 Open:
 
 http://127.0.0.1:5000
+
+## Vercel deployment
+
+Vercel uses the lightweight `requirements.txt` so the dashboard can deploy
+within the serverless function size limit. Full camera detection and telemetry
+analysis require the local dependencies in `requirements-local.txt`, because
+the YOLO/PyTorch stack is too large for a Vercel Function.
 
 ## Telemetry analysis
 
