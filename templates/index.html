@@ -173,6 +173,11 @@ async function sendCameraFrame() {
   cameraCanvas.getContext("2d").drawImage(camera, 0, 0);
 
   cameraCanvas.toBlob(async (blob) => {
+    if (!blob) {
+      sendingFrame = false;
+      cameraStatus.textContent = "Could not capture a camera frame.";
+      return;
+    }
     try {
       const formData = new FormData();
       formData.append("frame", blob, "camera.jpg");
@@ -235,7 +240,7 @@ async function sendCameraFrame() {
     } catch (error) {
       liveResult.classList.remove("detected-frame");
       cameraStatus.textContent =
-        `${error.message}. Camera preview is still running.`;
+        `${error.message || "Live detection request failed"}. Camera preview is still running.`;
     } finally {
       sendingFrame = false;
     }
@@ -327,20 +332,36 @@ function terminateExam(message) {
 startCamera.addEventListener("click", async () => {
   if (examTerminated || warningCount >= maxWarnings) return;
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Camera access requires HTTPS or localhost.");
+    }
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: false
     });
     camera.srcObject = cameraStream;
+    await camera.play();
+    await new Promise((resolve) => {
+      if (camera.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        resolve();
+      } else {
+        camera.addEventListener("loadedmetadata", resolve, { once: true });
+      }
+    });
     document.querySelector(".camera-stage").classList.add("live");
     document.querySelector(".camera-empty").style.display = "none";
     livePill.innerHTML = '<span class="pulse"></span> LIVE';
     startCamera.disabled = true;
     stopCamera.disabled = false;
     cameraStatus.textContent = "Starting live detection...";
+    setTimeout(sendCameraFrame, 250);
     cameraTimer = setInterval(sendCameraFrame, 500);
   } catch (error) {
-    cameraStatus.textContent = "Camera access was denied or unavailable.";
+    if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+    camera.srcObject = null;
+    cameraStatus.textContent =
+      `${error.name || "CameraError"}: ${error.message || "Camera access was denied or unavailable."}`;
   }
 });
 
