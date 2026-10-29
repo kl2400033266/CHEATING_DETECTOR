@@ -62,7 +62,6 @@
 
     <section class="alert-dashboard">
       <div class="alert-card"><small>PROXIMITY ALERTS</small><strong id="proximityCount">0</strong></div>
-      <div class="alert-card"><small>ATTENTION ALERTS</small><strong id="attentionCount">0</strong></div>
       <div class="alert-legend">
         <span><i class="legend-dot normal"></i>Normal</span>
         <span><i class="legend-dot attention"></i>Head turned</span>
@@ -126,7 +125,6 @@ let previousMultiplePeople = false;
 let previousObjectReview = false;
 let headTurnWarningRegistered = false;
 let proximityAlerts = 0;
-let attentionAlerts = 0;
 let alertEvents = 0;
 let examTerminated = false;
 const maxWarnings = 3;
@@ -235,7 +233,6 @@ async function sendCameraFrame() {
 
 function updateAlertDashboard(result) {
   document.getElementById("proximityCount").textContent = proximityAlerts;
-  document.getElementById("attentionCount").textContent = attentionAlerts;
   previousObjectReview = result.review;
   previousMultiplePeople = result.multiple_people;
   previousHeadRotated = result.head_rotated;
@@ -243,9 +240,7 @@ function updateAlertDashboard(result) {
 
 function addAlert(message, type) {
   alertEvents += 1;
-  if (type === "attention") {
-    attentionAlerts += 1;
-  } else if (type === "proximity") {
+  if (type === "proximity") {
     proximityAlerts += 1;
   }
   const log = document.getElementById("alertLog");
@@ -259,7 +254,6 @@ function addAlert(message, type) {
   document.getElementById("alertLogCount").textContent =
     `${alertEvents} ${alertEvents === 1 ? "event" : "events"}`;
   document.getElementById("proximityCount").textContent = proximityAlerts;
-  document.getElementById("attentionCount").textContent = attentionAlerts;
 }
 
 function registerWarning(reason, alertType) {
