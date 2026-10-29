@@ -120,12 +120,11 @@ let cameraStream;
 let cameraTimer;
 let sendingFrame = false;
 let warningCount = 0;
-let previousReview = false;
-let lastWarningAt = 0;
 let headRotationStartedAt = null;
 let previousHeadRotated = false;
 let previousMultiplePeople = false;
 let previousObjectReview = false;
+let headTurnWarningRegistered = false;
 let proximityAlerts = 0;
 let attentionAlerts = 0;
 let alertEvents = 0;
@@ -193,22 +192,26 @@ async function sendCameraFrame() {
       cameraStatus.textContent = labels
         ? `Detected: ${labels}`
         : "Monitoring: no review objects detected.";
-      updateAlertDashboard(result);
-      registerWarning(result.review);
-      if (result.multiple_people) {
-        stopExam("Exam stopped: more than one person detected.");
-      } else if (result.head_rotated) {
+      if (result.multiple_people && !previousMultiplePeople) {
+        registerWarning("More than one person detected");
+      }
+      if (result.head_rotated) {
         if (headRotationStartedAt === null) headRotationStartedAt = Date.now();
         const turnedSeconds = (Date.now() - headRotationStartedAt) / 1000;
-        if (turnedSeconds > 10) {
-          addAlert("Exam terminated: head turned continuously for more than 10 seconds", "attention");
-          stopExam("EXAM TERMINATED · Head turned continuously for more than 10 seconds.");
+        if (turnedSeconds > 10 && !headTurnWarningRegistered) {
+          headTurnWarningRegistered = true;
+          registerWarning("Head turned continuously for more than 10 seconds");
         } else {
           cameraStatus.textContent = `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
         }
       } else {
         headRotationStartedAt = null;
+        headTurnWarningRegistered = false;
       }
+      if (result.review && !previousObjectReview) {
+        registerWarning("Phone or book detected");
+      }
+      updateAlertDashboard(result);
     } catch (error) {
       liveResult.classList.remove("detected-frame");
       cameraStatus.textContent =
@@ -252,25 +255,20 @@ function addAlert(message, type) {
     `${alertEvents} ${alertEvents === 1 ? "event" : "events"}`;
 }
 
-function registerWarning(reviewDetected) {
+function registerWarning(reason) {
   if (examTerminated) return;
-  const now = Date.now();
-  const newEvent = reviewDetected && !previousReview;
-  const cooldownPassed = now - lastWarningAt >= 5000;
-  if (newEvent && cooldownPassed && warningCount < maxWarnings) {
-    warningCount += 1;
-    lastWarningAt = now;
-    document.querySelectorAll(".heart")[warningCount - 1].classList.add("used");
-    const remaining = maxWarnings - warningCount;
-    document.getElementById("examStatus").textContent =
-      remaining === 0
-        ? "EXAM TERMINATED · 3 warnings reached"
-        : `Warning ${warningCount}/3. Warnings remaining: ${remaining}`;
-    if (warningCount === maxWarnings) {
-      terminateExam("EXAM TERMINATED · Camera stopped after 3 warnings.");
-    }
+  if (!reason || warningCount >= maxWarnings) return;
+  warningCount += 1;
+  document.querySelectorAll(".heart")[warningCount - 1].classList.add("used");
+  addAlert(`Warning ${warningCount}/3: ${reason}`, "proximity");
+  const remaining = maxWarnings - warningCount;
+  document.getElementById("examStatus").textContent =
+    remaining === 0
+      ? "EXAM TERMINATED · 3 warnings reached"
+      : `Warning ${warningCount}/3. Warnings remaining: ${remaining}`;
+  if (warningCount === maxWarnings) {
+    terminateExam("EXAM TERMINATED · Camera stopped after 3 warnings.");
   }
-  previousReview = reviewDetected;
 }
 
 function stopExam(message = "Exam stopped after 3 review warnings.") {
@@ -346,10 +344,10 @@ stopCamera.addEventListener("click", () => {
   stopCamera.disabled = true;
   cameraStatus.textContent = "Camera stopped.";
   document.getElementById("examStatus").classList.remove("terminated");
-  previousReview = false;
   previousObjectReview = false;
   previousMultiplePeople = false;
   previousHeadRotated = false;
+  headTurnWarningRegistered = false;
   headRotationStartedAt = null;
 });
 </script>
