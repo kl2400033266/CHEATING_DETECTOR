@@ -187,7 +187,12 @@ async function sendCameraFrame() {
       liveResult.src = `data:image/jpeg;base64,${result.image}`;
       liveResult.classList.add("detected-frame");
       if (oldUrl.startsWith("blob:")) URL.revokeObjectURL(oldUrl);
-      cameraStatus.textContent = "Live detection is running.";
+      const labels = result.detections
+        .map((item) => `${item.name} ${Math.round(item.confidence * 100)}%`)
+        .join(", ");
+      cameraStatus.textContent = labels
+        ? `Detected: ${labels}`
+        : "Monitoring: no review objects detected.";
       updateAlertDashboard(result);
       registerWarning(result.review);
       if (result.multiple_people) {
@@ -270,6 +275,7 @@ function registerWarning(reviewDetected) {
 
 function stopExam(message = "Exam stopped after 3 review warnings.") {
   if (examTerminated) return;
+  examTerminated = true;
   clearInterval(cameraTimer);
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
@@ -277,13 +283,14 @@ function stopExam(message = "Exam stopped after 3 review warnings.") {
   document.querySelector(".camera-stage").classList.remove("live");
   liveResult.classList.remove("detected-frame");
   document.querySelector(".camera-empty").style.display = "grid";
-  livePill.innerHTML = '<span class="pulse"></span> STOPPED';
+  livePill.innerHTML = '<span class="pulse"></span> TERMINATED';
   startCamera.disabled = true;
   stopCamera.disabled = true;
   document.querySelectorAll(".heart").forEach((heart) => heart.classList.add("used"));
   cameraStatus.textContent = message;
   document.getElementById("examStatus").textContent = message;
   document.getElementById("examStatus").classList.add("terminated");
+  document.getElementById("terminationNotice").hidden = false;
 }
 
 function terminateExam(message) {

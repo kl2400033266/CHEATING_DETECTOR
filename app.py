@@ -94,11 +94,18 @@ def process_video(video_path):
 
 def detect_frame(frame):
     detection_model, pose_detection_model = get_detection_models()
-    results = detection_model(frame, verbose=False)
+    results = detection_model(frame, verbose=False, conf=0.15, imgsz=640)
     annotated = results[0].plot()
-    detected = [detection_model.names[int(box.cls[0])] for box in results[0].boxes]
+    detections = [
+        {
+            "name": detection_model.names[int(box.cls[0])],
+            "confidence": round(float(box.conf[0]), 2),
+        }
+        for box in results[0].boxes
+    ]
+    detected = [item["name"] for item in detections]
     person_count = sum(name == "person" for name in detected)
-    pose_results = pose_detection_model(frame, verbose=False)
+    pose_results = pose_detection_model(frame, verbose=False, conf=0.25, imgsz=640)
     head_rotated = False
     if pose_results[0].keypoints is not None:
         for keypoints in pose_results[0].keypoints.xy:
@@ -129,7 +136,7 @@ def detect_frame(frame):
         (0, 0, 255) if (review or person_count > 1 or head_rotated) else (0, 180, 0),
         2,
     )
-    return annotated, detected, person_count, head_rotated
+    return annotated, detected, detections, person_count, head_rotated
 
 
 @app.route("/detect-frame", methods=["POST"])
@@ -148,7 +155,7 @@ def detect_frame_route():
     if frame is None:
         return jsonify({"error": "Invalid camera frame"}), 400
 
-    annotated, detected, person_count, head_rotated = detect_frame(frame)
+    annotated, detected, detections, person_count, head_rotated = detect_frame(frame)
     ok, buffer = cv2.imencode(".jpg", annotated)
     if not ok:
         return jsonify({"error": "Could not encode detected frame"}), 500
@@ -157,6 +164,7 @@ def detect_frame_route():
         "image": base64.b64encode(buffer.tobytes()).decode("ascii"),
         "review": review,
         "detected": detected,
+        "detections": detections,
         "person_count": person_count,
         "multiple_people": person_count > 1,
         "head_rotated": head_rotated,
