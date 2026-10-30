@@ -125,6 +125,7 @@ let cameraTimer;
 let detectionModel;
 let poseModel;
 let loadingDetectionModel;
+let detectingFrame = false;
 let warningCount = 0;
 let headRotationStartedAt = null;
 let previousHeadRotated = false;
@@ -232,7 +233,11 @@ dataForm.addEventListener("submit", async (e) => {
 });
 
 async function sendCameraFrame() {
-  if (examTerminated || !cameraStream || camera.videoWidth === 0 || !detectionModel) return;
+  if (
+    examTerminated || !cameraStream || camera.videoWidth === 0 ||
+    !detectionModel || !poseModel || detectingFrame
+  ) return;
+  detectingFrame = true;
   try {
     const [predictions, headRotated] = await Promise.all([
       detectionModel.detect(camera),
@@ -287,6 +292,8 @@ async function sendCameraFrame() {
     updateAlertDashboard(result);
   } catch (error) {
     cameraStatus.textContent = `Frontend detection error: ${error.message}`;
+  } finally {
+    detectingFrame = false;
   }
 }
 
@@ -384,27 +391,25 @@ startCamera.addEventListener("click", async () => {
     });
     camera.srcObject = cameraStream;
     await camera.play();
-    cameraStatus.textContent = "Loading frontend detection model...";
-    await getDetectionModel();
-    await new Promise((resolve) => {
-      if (camera.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        resolve();
-      } else {
-        camera.addEventListener("loadedmetadata", resolve, { once: true });
-      }
-    });
     document.querySelector(".camera-stage").classList.add("live");
     document.querySelector(".camera-empty").style.display = "none";
     livePill.innerHTML = '<span class="pulse"></span> LIVE';
     startCamera.disabled = true;
     stopCamera.disabled = false;
-    cameraStatus.textContent = "Starting live detection...";
-    setTimeout(sendCameraFrame, 250);
+    cameraStatus.textContent = "Camera live · loading detection model...";
     cameraTimer = setInterval(sendCameraFrame, 500);
+    const models = await getDetectionModel();
+    if (models && cameraStream && !examTerminated) {
+      cameraStatus.textContent = "Live detection active.";
+      sendCameraFrame();
+    }
   } catch (error) {
     if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
     cameraStream = null;
     camera.srcObject = null;
+    clearInterval(cameraTimer);
+    startCamera.disabled = false;
+    stopCamera.disabled = true;
     cameraStatus.textContent =
       `${error.name || "CameraError"}: ${error.message || "Camera access was denied or unavailable."}`;
   }
