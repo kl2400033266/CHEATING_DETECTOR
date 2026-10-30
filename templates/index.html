@@ -29,7 +29,7 @@
     </section>
 
     <section class="metrics">
-      <div class="metric"><span class="metric-icon">◉</span><div><small>ENGINE</small><strong>YOLOv8 Nano</strong></div></div>
+      <div class="metric"><span class="metric-icon">◉</span><div><small>ENGINE</small><strong>Browser vision + YOLO</strong></div></div>
       <div class="metric"><span class="metric-icon green">✓</span><div><small>MODE</small><strong>Human review</strong></div></div>
       <div class="metric"><span class="metric-icon violet">⌁</span><div><small>LATENCY</small><strong>Live stream</strong></div></div>
     </section>
@@ -104,6 +104,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection/dist/pose-detection.min.js"></script>
 <script>
 const form = document.getElementById("uploadForm");
 const status = document.getElementById("status");
@@ -122,6 +123,7 @@ const apiUrl = (path) => `${apiBaseUrl}${path}`;
 let cameraStream;
 let cameraTimer;
 let detectionModel;
+let poseModel;
 let loadingDetectionModel;
 let warningCount = 0;
 let headRotationStartedAt = null;
@@ -136,12 +138,41 @@ const maxWarnings = 3;
 const reviewObjects = new Set(["cell phone", "book"]);
 
 async function getDetectionModel() {
-  if (detectionModel) return detectionModel;
+  if (detectionModel && poseModel) return { detectionModel, poseModel };
   if (!loadingDetectionModel) {
-    loadingDetectionModel = cocoSsd.load({ base: "lite_mobilenet_v2" });
+    loadingDetectionModel = Promise.all([
+      cocoSsd.load({ base: "lite_mobilenet_v2" }),
+      poseDetection.createDetector(
+        poseDetection.SupportedModels.MoveNet,
+        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+      )
+    ]);
   }
-  detectionModel = await loadingDetectionModel;
-  return detectionModel;
+  [detectionModel, poseModel] = await loadingDetectionModel;
+  return { detectionModel, poseModel };
+}
+
+async function detectHeadTurn() {
+  const poses = await poseModel.estimatePoses(camera, {
+    maxPoses: 1,
+    flipHorizontal: false
+  });
+  const keypoints = poses[0]?.keypoints || [];
+  const nose = keypoints[0];
+  const leftShoulder = keypoints[5];
+  const rightShoulder = keypoints[6];
+  if (
+    !nose || !leftShoulder || !rightShoulder ||
+    (nose.score ?? 0) < 0.25 ||
+    (leftShoulder.score ?? 0) < 0.25 ||
+    (rightShoulder.score ?? 0) < 0.25
+  ) {
+    return false;
+  }
+  const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
+  if (shoulderWidth <= 0) return false;
+  const shoulderCenter = (leftShoulder.x + rightShoulder.x) / 2;
+  return Math.abs(nose.x - shoulderCenter) / shoulderWidth > 0.25;
 }
 
 function drawDetections(predictions) {
@@ -203,7 +234,10 @@ dataForm.addEventListener("submit", async (e) => {
 async function sendCameraFrame() {
   if (examTerminated || !cameraStream || camera.videoWidth === 0 || !detectionModel) return;
   try {
-    const predictions = await detectionModel.detect(camera);
+    const [predictions, headRotated] = await Promise.all([
+      detectionModel.detect(camera),
+      detectHeadTurn()
+    ]);
     const detections = predictions
       .filter((prediction) => prediction.score >= 0.45)
       .map((prediction) => ({
@@ -217,7 +251,7 @@ async function sendCameraFrame() {
       detections,
       review: Boolean(reviewObject),
       multiple_people: people > 1,
-      head_rotated: false
+      head_rotated: headRotated
     };
     const labels = detections
       .map((item) => `${item.name} ${Math.round(item.confidence * 100)}%`)
@@ -227,6 +261,25 @@ async function sendCameraFrame() {
       : "Frontend monitoring: no review objects detected.";
     if (result.multiple_people && !previousMultiplePeople) {
       registerWarning("More than one person detected", "proximity");
+    }
+    if (result.head_rotated) {
+      if (headRotationStartedAt === null) headRotationStartedAt = Date.now();
+      const turnedSeconds = (Date.now() - headRotationStartedAt) / 1000;
+      if (turnedSeconds > 10 && !headTurnWarningRegistered) {
+        headTurnWarningRegistered = true;
+        registerWarning(
+          "Head turned continuously for more than 10 seconds",
+          "attention"
+        );
+        cameraStatus.textContent =
+          "Attention alert: head turned for more than 10 seconds.";
+      } else if (warningCount < maxWarnings) {
+        cameraStatus.textContent =
+          `Head turned continuously · ${Math.ceil(10 - turnedSeconds)} seconds remaining`;
+      }
+    } else {
+      headRotationStartedAt = null;
+      headTurnWarningRegistered = false;
     }
     if (result.review && !previousObjectReview) {
       registerWarning(`${reviewObject.name} detected`, "proximity");

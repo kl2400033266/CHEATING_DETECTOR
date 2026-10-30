@@ -59,9 +59,13 @@ Render:
    `AI_BACKEND_URL` with that backend URL.
 6. Redeploy Vercel and refresh the browser.
 
-The dashboard then sends live camera frames to the Render backend. The backend
-downloads `yolov8n.pt` and `yolo11n-pose.pt` automatically when first used.
-The same backend can also process telemetry and uploaded videos.
+The live camera dashboard runs object and pose detection in the browser using
+TensorFlow.js, COCO-SSD, and MoveNet, so camera detection does not depend on a
+slow or sleeping backend request. It detects phones, books, multiple people,
+and head turns lasting more than ten seconds. The Render backend retains the
+YOLO endpoints for uploaded-video processing and API use, and can also process
+telemetry. Keep `yolov8n.pt` and `yolo11n-pose.pt` available for those backend
+features.
 
 ## Telemetry analysis
 
