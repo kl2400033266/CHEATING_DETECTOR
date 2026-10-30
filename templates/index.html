@@ -58,6 +58,7 @@
         FINAL WARNING — all 3 chances are used. The exam is being terminated.
       </div>
       <p id="cameraStatus" class="camera-status">Waiting for camera permission</p>
+      <p id="soundStatus" class="sound-status">Sound monitoring is ready</p>
     </section>
 
     <section class="alert-dashboard">
@@ -137,8 +138,16 @@ let alertEvents = 0;
 let examTerminated = false;
 let examStarted = false;
 let tabSwitches = 0;
+let audioContext;
+let audioAnalyser;
+let audioData;
+let soundMonitorTimer;
+let speechRecognition;
+let lastSpeechWarningAt = 0;
+let soundLevelWarningRegistered = false;
 const maxWarnings = 3;
 const reviewObjects = new Set(["cell phone", "book"]);
+const soundLevelWarningThreshold = 0.05;
 
 async function getDetectionModel() {
   if (detectionModel && poseModel) return { detectionModel, poseModel };
@@ -344,10 +353,130 @@ function registerWarning(reason, alertType) {
   }
 }
 
+function stopSoundMonitoring() {
+  clearInterval(soundMonitorTimer);
+  soundMonitorTimer = null;
+  if (speechRecognition) {
+    speechRecognition.onresult = null;
+    speechRecognition.onerror = null;
+    speechRecognition.onend = null;
+    try {
+      speechRecognition.stop();
+    } catch {
+      // Recognition may already be stopped.
+    }
+    speechRecognition = null;
+  }
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+  audioAnalyser = null;
+  audioData = null;
+  soundLevelWarningRegistered = false;
+}
+
+function monitorSound() {
+  if (!audioAnalyser || !audioData || examTerminated) return;
+  audioAnalyser.getByteTimeDomainData(audioData);
+  let sum = 0;
+  for (const sample of audioData) {
+    const amplitude = (sample - 128) / 128;
+    sum += amplitude * amplitude;
+  }
+  const rms = Math.sqrt(sum / audioData.length);
+  const soundStatus = document.getElementById("soundStatus");
+  const soundLevel = Math.round(rms * 100);
+  soundStatus.textContent =
+    `Human speech monitoring active · microphone level ${soundLevel}%`;
+  if (rms >= soundLevelWarningThreshold) {
+    if (!soundLevelWarningRegistered) {
+      soundLevelWarningRegistered = true;
+      registerWarning(
+        `Sound level reached ${soundLevel}%`,
+        "attention"
+      );
+    }
+  } else {
+    soundLevelWarningRegistered = false;
+  }
+}
+
+async function startSoundMonitoring(stream) {
+  const audioTrack = stream.getAudioTracks()[0];
+  const soundStatus = document.getElementById("soundStatus");
+  if (!audioTrack) {
+    throw new Error("Microphone permission is required for sound monitoring.");
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error("This browser does not support sound monitoring.");
+  }
+  audioContext = new AudioContextClass();
+  const source = audioContext.createMediaStreamSource(stream);
+  audioAnalyser = audioContext.createAnalyser();
+  audioAnalyser.fftSize = 2048;
+  audioAnalyser.minDecibels = -90;
+  audioAnalyser.maxDecibels = -10;
+  audioAnalyser.smoothingTimeConstant = 0;
+  audioData = new Uint8Array(audioAnalyser.fftSize);
+  source.connect(audioAnalyser);
+  await audioContext.resume();
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    throw new Error(
+      "Human speech detection requires Chrome or Edge speech recognition."
+    );
+  }
+  speechRecognition = new SpeechRecognition();
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = false;
+  speechRecognition.lang = "en-US";
+  speechRecognition.onresult = (event) => {
+    if (examTerminated) return;
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const transcript = result[0].transcript.trim();
+      const confidence = result[0].confidence || 0;
+      if (
+        result.isFinal &&
+        transcript.length >= 2 &&
+        confidence >= 0.35 &&
+        Date.now() - lastSpeechWarningAt >= 1500
+      ) {
+        lastSpeechWarningAt = Date.now();
+        registerWarning("Human speech detected", "attention");
+        soundStatus.textContent = "Human speech detected — Warning issued";
+        return;
+      }
+    }
+  };
+  speechRecognition.onerror = (event) => {
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      soundStatus.textContent = "Human speech detection permission was denied";
+    }
+  };
+  speechRecognition.onend = () => {
+    if (!examTerminated && examStarted && speechRecognition) {
+      try {
+        speechRecognition.start();
+      } catch {
+        // Recognition may still be restarting.
+      }
+    }
+  };
+  speechRecognition.start();
+  soundStatus.textContent = "Sound monitoring active · listening locally";
+  soundMonitorTimer = setInterval(monitorSound, 50);
+  monitorSound();
+}
+
 function stopExam(message = "Exam stopped after 3 review warnings.") {
   if (examTerminated) return;
   examTerminated = true;
   clearInterval(cameraTimer);
+  stopSoundMonitoring();
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
   examStarted = false;
@@ -366,8 +495,10 @@ function stopExam(message = "Exam stopped after 3 review warnings.") {
 }
 
 function terminateExam(message) {
+  if (examTerminated) return;
   examTerminated = true;
   clearInterval(cameraTimer);
+  stopSoundMonitoring();
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
   camera.srcObject = null;
@@ -383,7 +514,7 @@ function terminateExam(message) {
   document.getElementById("examStatus").textContent = message;
   document.getElementById("examStatus").classList.add("terminated");
   cameraStatus.textContent = "No further detections are accepted after exam termination.";
-  addAlert("Exam terminated after 3 warnings", "proximity");
+  addAlert(message, "attention");
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -403,16 +534,17 @@ startCamera.addEventListener("click", async () => {
     }
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: true,
-      audio: false
+      audio: true
     });
     camera.srcObject = cameraStream;
     await camera.play();
+    examStarted = true;
+    await startSoundMonitoring(cameraStream);
     document.querySelector(".camera-stage").classList.add("live");
     document.querySelector(".camera-empty").style.display = "none";
     livePill.innerHTML = '<span class="pulse"></span> LIVE';
     startCamera.disabled = true;
     stopCamera.disabled = false;
-    examStarted = true;
     cameraStatus.textContent = "Camera live · loading detection model...";
     cameraTimer = setInterval(sendCameraFrame, 500);
     const models = await getDetectionModel();
@@ -421,6 +553,7 @@ startCamera.addEventListener("click", async () => {
       sendCameraFrame();
     }
   } catch (error) {
+    stopSoundMonitoring();
     if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
     cameraStream = null;
     examStarted = false;
@@ -436,6 +569,7 @@ startCamera.addEventListener("click", async () => {
 stopCamera.addEventListener("click", () => {
   if (examTerminated) return;
   clearInterval(cameraTimer);
+  stopSoundMonitoring();
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
   examStarted = false;
@@ -451,6 +585,7 @@ stopCamera.addEventListener("click", () => {
   previousHeadRotated = false;
   headTurnWarningRegistered = false;
   headRotationStartedAt = null;
+  document.getElementById("soundStatus").textContent = "Sound monitoring is ready";
 });
 </script>
 </body>

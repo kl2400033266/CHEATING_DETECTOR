@@ -16,6 +16,9 @@ if not AI_BACKEND_URL and os.environ.get("VERCEL"):
 @app.after_request
 def allow_frontend_requests(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 try:

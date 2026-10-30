@@ -59,10 +59,16 @@ Render:
    `AI_BACKEND_URL` with that backend URL.
 6. Redeploy Vercel and refresh the browser.
 
-The live camera dashboard runs object and pose detection in the browser using
-TensorFlow.js, COCO-SSD, and MoveNet, so camera detection does not depend on a
-slow or sleeping backend request. It detects phones, books, multiple people,
-and head turns lasting more than ten seconds. The Render backend retains the
+The live camera dashboard runs object, pose, and sound detection in the browser
+using TensorFlow.js, COCO-SSD, MoveNet, and the Web Audio API, so monitoring
+does not depend on a slow or sleeping backend request. Microphone samples are
+analyzed locally and are not uploaded. It detects phones, books, multiple
+people, microphone sound, and head turns lasting more than ten seconds.
+Microphone permission and browser speech recognition are required to start a
+monitored session. Only a confident human speech transcript issues a warning;
+background sounds are ignored. Camera, object, and pose monitoring continues
+during speech monitoring. Use Chrome or Edge for this feature.
+The Render backend retains the
 YOLO endpoints for uploaded-video processing and API use, and can also process
 telemetry. Keep `yolov8n.pt` and `yolo11n-pose.pt` available for those backend
 features.

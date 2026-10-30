@@ -67,7 +67,7 @@ button { border: 0; cursor: pointer; font: 600 12px "DM Sans"; transition: .2s e
 .exam-status.terminated { padding: 13px 15px; border: 1px solid rgba(255,107,138,.45); border-radius: 9px; color: #ff9db1; background: rgba(255,107,138,.1); font: 700 13px "Space Grotesk"; letter-spacing: .5px; text-transform: uppercase; }
 .termination-notice { margin-top: 12px; padding: 13px 15px; border: 1px solid rgba(255,179,41,.5); border-radius: 9px; color: #ffd27b; background: rgba(255,179,41,.1); font: 700 12px "Space Grotesk"; letter-spacing: .4px; animation: warningPulse 1s ease-in-out infinite alternate; }
 @keyframes warningPulse { from { box-shadow: 0 0 0 rgba(255,179,41,0); } to { box-shadow: 0 0 22px rgba(255,179,41,.2); } }
-.camera-status { min-height: 18px; margin-top: 8px; color: var(--muted); font-size: 11px; }.lower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+.camera-status, .sound-status { min-height: 18px; margin-top: 8px; color: var(--muted); font-size: 11px; }.sound-status { color: #aab4ca; }.lower-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
 .alert-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
 .alert-card { padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: rgba(18,24,40,.72); }
 .alert-card small { display: block; color: var(--muted); font: 600 9px "Space Grotesk"; letter-spacing: 1.4px; }.alert-card strong { display: block; margin-top: 7px; color: var(--danger); font: 600 27px "Space Grotesk"; }.alert-card:nth-child(2) strong { color: #ffb329; }
