@@ -135,6 +135,8 @@ let headTurnWarningRegistered = false;
 let proximityAlerts = 0;
 let alertEvents = 0;
 let examTerminated = false;
+let examStarted = false;
+let tabSwitches = 0;
 const maxWarnings = 3;
 const reviewObjects = new Set(["cell phone", "book"]);
 
@@ -152,6 +154,10 @@ async function getDetectionModel() {
   [detectionModel, poseModel] = await loadingDetectionModel;
   return { detectionModel, poseModel };
 }
+
+getDetectionModel().catch(() => {
+  cameraStatus.textContent = "Detection model will retry when the camera starts.";
+});
 
 async function detectHeadTurn() {
   const poses = await poseModel.estimatePoses(camera, {
@@ -344,6 +350,7 @@ function stopExam(message = "Exam stopped after 3 review warnings.") {
   clearInterval(cameraTimer);
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
+  examStarted = false;
   camera.srcObject = null;
   document.querySelector(".camera-stage").classList.remove("live");
   liveResult.classList.remove("detected-frame");
@@ -379,6 +386,15 @@ function terminateExam(message) {
   addAlert("Exam terminated after 3 warnings", "proximity");
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (!examStarted || examTerminated || document.visibilityState !== "hidden") return;
+  tabSwitches += 1;
+  registerWarning(
+    `Exam tab left (${tabSwitches} tab switch${tabSwitches === 1 ? "" : "es"})`,
+    "attention"
+  );
+});
+
 startCamera.addEventListener("click", async () => {
   if (examTerminated || warningCount >= maxWarnings) return;
   try {
@@ -396,6 +412,7 @@ startCamera.addEventListener("click", async () => {
     livePill.innerHTML = '<span class="pulse"></span> LIVE';
     startCamera.disabled = true;
     stopCamera.disabled = false;
+    examStarted = true;
     cameraStatus.textContent = "Camera live · loading detection model...";
     cameraTimer = setInterval(sendCameraFrame, 500);
     const models = await getDetectionModel();
@@ -406,6 +423,7 @@ startCamera.addEventListener("click", async () => {
   } catch (error) {
     if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
     cameraStream = null;
+    examStarted = false;
     camera.srcObject = null;
     clearInterval(cameraTimer);
     startCamera.disabled = false;
@@ -420,6 +438,7 @@ stopCamera.addEventListener("click", () => {
   clearInterval(cameraTimer);
   if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
   cameraStream = null;
+  examStarted = false;
   camera.srcObject = null;
   document.querySelector(".camera-empty").style.display = "grid";
   livePill.innerHTML = '<span class="pulse"></span> READY';
